@@ -1,57 +1,30 @@
-// server.js  (Node 18+ on Replit includes global fetch)
 import express from "express";
-import cors from "cors";
+import rateLimit from "express-rate-limit";
+import path from "path";
+import { fileURLToPath } from "url";
 
-// -------------- CONFIG --------------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 
-// Allow your CV site to call this API.
-// Add your domains here (GitHub Pages, custom domain, etc.)
-const ALLOW_ORIGINS = [
-  "http://localhost:5500",                 // local dev (if you serve your CV locally)
-  "https://juliabaucher.github.io/lab2/",        // your GitHub Pages site (example)
-  "https://your-custom-domain.example"     // replace/add as needed
-];
-
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && ALLOW_ORIGINS.includes(origin)) {
-    res.header("Access-Control-Allow-Origin", origin);
-  }
-  res.header("Vary", "Origin");
-  res.header("Access-Control-Allow-Headers", "Content-Type, X-Client-Token");
-  res.header("Access-Control-Allow-Methods", "OPTIONS, POST, GET");
-  if (req.method === "OPTIONS") return res.status(204).end();
-  next();
-});
-
 app.use(express.json({ limit: "1mb" }));
+app.use(express.static("."));
 
-// Optional: simple shared secret to avoid public abuse
-const CLIENT_TOKEN = process.env.CLIENT_TOKEN || ""; // set in Secrets tab
-
-// -------------- ROUTES --------------
-
-// Health check
-app.get("/", (req, res) => {
-  res.type("text/plain").send("OK: cv-chat-backend is running");
+const chatLimiter = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000,
+  max: 50,
+  message: { error: "Too many requests, please try again tomorrow" }
 });
 
-// Proxy endpoint to OpenAI
-app.post("/chat", async (req, res) => {
-  try {
-    // Simple token check (optional but recommended)
-    if (CLIENT_TOKEN) {
-      const t =
-        req.header("X-Client-Token") ||
-        req.header("x-client-token") ||
-        "";
-      if (t !== CLIENT_TOKEN) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-    }
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
+});
 
-    const { messages, model = "gpt-4o-mini", temperature = 0.3, max_tokens = 500 } = req.body || {};
+app.post("/api/chat", chatLimiter, async (req, res) => {
+  try {
+    const { messages, model = "gpt-4o-mini", temperature = 0.7, max_tokens = 800 } = req.body || {};
+    
     if (!Array.isArray(messages)) {
       return res.status(400).json({ error: "messages must be an array" });
     }
@@ -61,8 +34,7 @@ app.post("/chat", async (req, res) => {
       return res.status(500).json({ error: "OPENAI_API_KEY is not set on the server" });
     }
 
-    // Call OpenAI
-    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -76,21 +48,27 @@ app.post("/chat", async (req, res) => {
       })
     });
 
-    const data = await r.json();
-    if (!r.ok) {
-      return res.status(r.status).json({ error: data.error?.message || "OpenAI error" });
+    const data = await response.json();
+    
+    if (!response.ok) {
+      console.error("OpenAI API error:", data);
+      return res.status(response.status).json({ 
+        error: data.error?.message || "OpenAI API error" 
+      });
     }
 
-    res.json(data);
+    const reply = data.choices?.[0]?.message?.content || "No response from AI";
+    res.json({ message: reply });
+    
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Server error. Please try again." });
   }
 });
 
-// -------------- START SERVER --------------
-// Replit provides PORT; must listen on 0.0.0.0 for the web preview to work.
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`✅ CV Chatbot server running on port ${PORT}`);
+  console.log(`📄 Serving index.html at http://localhost:${PORT}`);
+  console.log(`🤖 Chat API available at /api/chat`);
 });
