@@ -831,17 +831,21 @@ Answer in the user’s language when possible. If unsure, ask a clarifying quest
         inputEl.disabled = true;
         sendBtn.disabled = true;
 
-        try {
-          const r = await fetch('/api/chat', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
 
-            },
-            body: JSON.stringify({
-              messages: history
-            })
-          });
+            try {
+const API_BASE = 'https://replit.com/@yuliasmirnova/JuliaBaucherCV-backend';
+const r = await fetch(`${API_BASE}/api/chat`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    model: 'gpt-4o-mini',
+    temperature: 0.3,
+    messages: history
+  })
+});
+
+
+          
 
           const data = await r.json();
           if (!r.ok) throw new Error(data.error || 'Request failed');
